@@ -1,7 +1,7 @@
 const Food = require("../models/Food");
 const User = require("../models/User");
 
-// 🚀 STEP 4: Get All Available Food (Public Feed)
+// Get all available food (public feed)
 const getAllFood = async (req, res) => {
   try {
     const foods = await Food.find({ status: "available" })
@@ -22,7 +22,7 @@ const getAllFood = async (req, res) => {
   }
 };
 
-// ✅ STEP 5: Create Food (Donor Action)
+// Create food (donor action)
 const createFood = async (req, res) => {
   try {
     const { title, quantity, location, expiryTime, description, image } = req.body;
@@ -70,7 +70,7 @@ const createFood = async (req, res) => {
   }
 };
 
-// 🔥 STEP 5: Claim Food (Receiver Action) - CORE FEATURE
+// Claim food (receiver action)
 const claimFood = async (req, res) => {
   try {
     const { id } = req.params;
@@ -147,7 +147,7 @@ const claimFood = async (req, res) => {
   }
 };
 
-// ✅ STEP 6: Donor Dashboard - Get My Posts
+// Donor dashboard - get my posts
 const getMyPosts = async (req, res) => {
   try {
     if (!req.user || !req.user.id) {
@@ -188,7 +188,7 @@ const getMyPosts = async (req, res) => {
   }
 };
 
-// ✅ STEP 6: Receiver Dashboard - Get My Claims
+// Receiver dashboard - get my claims
 const getMyClaims = async (req, res) => {
   try {
     if (!req.user || !req.user.id) {
@@ -231,34 +231,7 @@ const getMyClaims = async (req, res) => {
   }
 };
 
-// Additional helper functions (optional)
-const getAllFoodsAuth = async (req, res) => {
-  try {
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({ 
-        success: false,
-        message: "User not authenticated" 
-      });
-    }
-    
-    const foods = await Food.find()
-      .populate("donor", "name email")
-      .populate("receiver", "name email")
-      .sort({ createdAt: -1 });
-    
-    res.status(200).json({
-      success: true,
-      count: foods.length,
-      foods
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: error.message 
-    });
-  }
-};
-
+// Get food by ID
 const getFoodById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -293,6 +266,7 @@ const getFoodById = async (req, res) => {
   }
 };
 
+// Update food
 const updateFood = async (req, res) => {
   try {
     const { id } = req.params;
@@ -341,6 +315,7 @@ const updateFood = async (req, res) => {
   }
 };
 
+// Delete food
 const deleteFood = async (req, res) => {
   try {
     const { id } = req.params;
@@ -383,14 +358,43 @@ const deleteFood = async (req, res) => {
   }
 };
 
-module.exports = { 
-  getAllFood,          // Public feed
-  createFood,         // Create food
-  claimFood,          // Claim food
-  getMyPosts,         // Donor dashboard
-  getMyClaims,        // Receiver dashboard
-  getAllFoodsAuth,    // All foods (auth)
-  getFoodById,        // Get by ID
-  updateFood,         // Update food
-  deleteFood          // Delete food
+// Get all foods (admin)
+const getAllFoodsAuth = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ 
+        success: false,
+        message: "User not authenticated" 
+      });
+    }
+    
+    const foods = await Food.find()
+      .populate("donor", "name email")
+      .populate("receiver", "name email")
+      .sort({ createdAt: -1 });
+    
+    res.status(200).json({
+      success: true,
+      count: foods.length,
+      foods
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
+// Export all functions
+module.exports = {
+  getAllFood,
+  createFood,
+  claimFood,
+  getMyPosts,
+  getMyClaims,
+  getFoodById,
+  updateFood,
+  deleteFood,
+  getAllFoodsAuth
 };

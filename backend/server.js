@@ -8,41 +8,81 @@ const foodRoutes = require("./routes/foodRoutes");
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// Middleware - CORS configuration
+app.use(cors({
+  origin: ["http://localhost:5175", "http://localhost:5173", "http://localhost:3000"],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch(err => console.error("MongoDB connection error:", err));
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} ${req.ip}`);
+  next();
+});
+
+// Database connection with better error handling
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    
+    // Connection event listeners
+    mongoose.connection.on('error', (err) => {
+      console.error('❌ MongoDB connection error:', err);
+    });
+    
+    mongoose.connection.on('disconnected', () => {
+      console.log('⚠️ MongoDB disconnected');
+    });
+    
+    mongoose.connection.on('reconnected', () => {
+      console.log('✅ MongoDB reconnected');
+    });
+    
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error.message);
+    process.exit(1); // Exit process with failure
+  }
+};
+
+connectDB();
 
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/food", foodRoutes);
 
-// API Documentation Route
+// Health check endpoint
+app.get("/health", (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  res.json({
+    success: true,
+    message: "API is running",
+    database: dbStatus,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Welcome route
 app.get("/", (req, res) => {
-  res.json({ 
-    message: "FoodBridge API Running 🚀",
-    version: "2.0.0",
-    status: "active",
-    time: new Date().toISOString(),
-    documentation: {
-      public_endpoints: {
-        "GET /api/food": "Get all available food (Public Feed)",
-        "POST /api/auth/register": "Register new user",
-        "POST /api/auth/login": "Login user"
-      },
-      protected_endpoints: {
-        "POST /api/food/create": "Create food donation (Auth Required)",
-        "PUT /api/food/claim/:id": "Claim food item (Auth Required)",
-        "GET /api/food/my-posts": "Donor dashboard - view your donations",
-        "GET /api/food/my-claims": "Receiver dashboard - view your claims",
-        "GET /api/auth/profile": "Get user profile"
-      }
+  res.json({
+    success: true,
+    message: "Welcome to FoodBridge API",
+    version: "1.0.0",
+    endpoints: {
+      auth: "/api/auth",
+      food: "/api/food",
+      health: "/health"
     }
   });
 });
@@ -51,43 +91,82 @@ app.get("/", (req, res) => {
 app.use((req, res) => {
   res.status(404).json({ 
     success: false,
-    message: `Route ${req.method} ${req.originalUrl} not found`,
-    suggestion: "Visit / to see available endpoints"
+    message: `Route ${req.method} ${req.originalUrl} not found`
   });
 });
 
-// Error handling middleware
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error("Server error:", err.stack);
+  console.error("Server error:", err);
   
-  const statusCode = err.statusCode || 500;
-  const message = err.message || "Something went wrong!";
+  // Mongoose validation error
+  if (err.name === 'ValidationError') {
+    const messages = Object.values(err.errors).map(val => val.message);
+    return res.status(400).json({
+      success: false,
+      message: messages.join(', ')
+    });
+  }
   
-  res.status(statusCode).json({ 
+  // Mongoose duplicate key error
+  if (err.code === 11000) {
+    return res.status(400).json({
+      success: false,
+      message: 'Duplicate field value entered'
+    });
+  }
+  
+  // JWT error
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid token'
+    });
+  }
+  
+  // Token expired error
+  if (err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      success: false,
+      message: 'Token expired'
+    });
+  }
+  
+  // Default error
+  res.status(500).json({ 
     success: false,
-    message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    message: process.env.NODE_ENV === 'development' ? err.message : "Internal server error"
   });
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📡 API Base URL: http://localhost:${PORT}`);
-  console.log("\n🌟 FOODBRIDGE CORE FEATURES:");
-  console.log("   ✅ Public Food Feed    - GET /api/food");
-  console.log("   ✅ Food Creation       - POST /api/food/create (Auth)");
-  console.log("   ✅ Food Claim System   - PUT /api/food/claim/:id (Auth)");
-  console.log("   ✅ Donor Dashboard     - GET /api/food/my-posts (Auth)");
-  console.log("   ✅ Receiver Dashboard  - GET /api/food/my-claims (Auth)");
-  console.log("\n📱 Test with Postman:");
-  console.log("   1. Register/Login to get token");
-  console.log("   2. View available food: GET /api/food");
-  console.log("   3. Create donation: POST /api/food/create");
-  console.log("   4. Claim food: PUT /api/food/claim/:id");
-  console.log("   5. View dashboards: GET /api/food/my-posts & /api/food/my-claims");
+const server = app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`📊 MongoDB: Connected to Atlas`);
+  console.log(`🔐 JWT Secret: Using ${process.env.JWT_SECRET ? 'custom secret' : 'default secret'}`);
 });
-app.use(cors({
-  origin: "http://localhost:5175", // Vite port
-  credentials: true
-}));
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    mongoose.connection.close(false, () => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    mongoose.connection.close(false, () => {
+      console.log('MongoDB connection closed');
+      process.exit(0);
+    });
+  });
+});
+
+module.exports = app; // For testing
